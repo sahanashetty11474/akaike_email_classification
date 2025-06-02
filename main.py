@@ -1,37 +1,19 @@
-from flask import Flask, request, jsonify
-from models import classify_email
-from utils import mask_pii
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from utils import preprocess, mask_pii
+import pickle
 
-app = Flask(__name__)
+# Load model
+with open("model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-@app.route('/classify', methods=['POST'])
-def classify():
-    try:
-        data = request.get_json()
-        email_body = data.get("input_email_body")
-        if not email_body:
-            return jsonify({"error": "No input_email_body provided"}), 400
+app = FastAPI()
 
-        # Mask PII from email text
-        masked_email, entities = mask_pii(email_body)
-        
-        # Classify masked email text
-        category = classify_email(masked_email)
-
-        # Build the response as per required format
-        response = {
-            "input_email_body": email_body,
-            "list_of_masked_entities": entities,
-            "masked_email": masked_email,
-            "category_of_the_email": category
-        }
-
-        return jsonify(response)
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-if __name__ == '__main__':
-    print("Starting the API server...")
-    app.run(debug=True, host='0.0.0.0', port=7860)
+@app.post("/predict/")
+async def predict(request: Request):
+    data = await request.json()
+    text = data.get("text", "")
+    preprocessed_text = preprocess(text)
+    prediction = model.predict([preprocessed_text])[0]
+    masked_text = mask_pii(text) if prediction == 1 else text
+    return JSONResponse(content={"prediction": int(prediction), "masked_text": masked_text})
